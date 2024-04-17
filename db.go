@@ -36,6 +36,7 @@ func NewDbInstance() *DbInstance {
 		id TEXT PRIMARY KEY,
 		content TEXT,
 		user_id TEXT REFERENCES users("id"),
+		room_id TEXT,
 		created_at TIMESTAMP DEFAULT NOW()
 	);
 	`
@@ -177,4 +178,33 @@ func (pq *DbInstance) IsSession(id string) (bool, error) {
 	}
 	//TODO: Implement Session Expiry Logic
 	return true, err
+}
+
+type Chat struct {
+	Id        string `json:"id,omitempty"`
+	Content   string `json:"content,omitempty"`
+	UserId    string `json:"user_id,omitempty"`
+	RoomId    string `json:"room_id,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type CreateChatRequest struct {
+	Content string `json:"content,omitempty"`
+	UserId  string `json:"user_id,omitempty"`
+	RoomId  string `json:"room_id,omitempty"`
+}
+
+func (pq *DbInstance) CreateChat(req CreateChatRequest) (string, error) {
+	query := `
+	INSERT INTO chats(id, content, user_id, room_id)
+	VALUES($1, $2, $3, $4);
+	`
+
+	id := ranhash.RanHash(8)
+	_, err := pq.db.Exec(query, id, req.Content, req.UserId, req.RoomId)
+	if err != nil {
+		return "", err
+	}
+
+	return id, nil
 }

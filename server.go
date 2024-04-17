@@ -9,12 +9,44 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/newtoallofthis123/ranhash"
 )
 
 type Server struct {
-	conns     map[*websocket.Conn]User
+	rooms     Rooms
 	db        *DbInstance
 	logWriter io.Writer
+}
+
+type Room struct {
+	id    string
+	name  string
+	conns map[*websocket.Conn]User
+}
+
+func NewRoom(id string) Room {
+	return Room{
+		id:    id,
+		conns: make(map[*websocket.Conn]User),
+	}
+}
+
+type Rooms struct {
+	rooms map[string]Room
+}
+
+func NewRooms() Rooms {
+	return Rooms{
+		rooms: map[string]Room{},
+	}
+}
+
+func (r *Rooms) GetRoom(id string) Room {
+	_, exists := r.rooms[id]
+	if !exists {
+		r.rooms[id] = NewRoom(id)
+	}
+	return r.rooms[id]
 }
 
 var upgrader = websocket.Upgrader{
@@ -24,7 +56,7 @@ var upgrader = websocket.Upgrader{
 
 func NewServer() *Server {
 	return &Server{
-		conns:     make(map[*websocket.Conn]User),
+		rooms:     NewRooms(),
 		db:        NewDbInstance(),
 		logWriter: os.Stderr,
 	}
@@ -32,7 +64,7 @@ func NewServer() *Server {
 
 func NewServerWithLog(file *os.File) *Server {
 	return &Server{
-		conns:     make(map[*websocket.Conn]User),
+		rooms:     NewRooms(),
 		db:        NewDbInstance(),
 		logWriter: file,
 	}
@@ -48,7 +80,10 @@ func (s *Server) StartServer(addr string) {
 	auth := r.Group("/api")
 	auth.Use(s.authMiddleWare())
 	auth.GET("/echo", s.handleAuthEcho)
-	auth.GET("/chat", s.handleChat)
+
+	room := auth.Group("/chat")
+	room.Use(s.roomMiddleWare())
+	room.GET("/:roomId", s.handleChat)
 
 	s.log("Starting server with addr: " + addr)
 	r.Run(addr)
@@ -68,7 +103,7 @@ type Message struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
-func (s *Server) clientLoop(ws *websocket.Conn) {
+func (s *Server) clientLoop(room Room, ws *websocket.Conn) {
 	var msg Message
 	for {
 		err := ws.ReadJSON(&msg)
@@ -76,6 +111,39 @@ func (s *Server) clientLoop(ws *websocket.Conn) {
 			ws.WriteJSON(gin.H{"Error": err})
 			continue
 		}
+
+		//TODO: Add in json validation for the userid and sanitize the content
+		var req = CreateChatRequest{
+			Content: msg.Content,
+			UserId:  msg.UserId,
+			RoomId:  room.id,
+		}
+
+		id, err := s.db.CreateChat(req)
+		if err != nil {
+			ws.WriteJSON(gin.H{"Error": err})
+			continue
+		}
+		s.log("Msg with id: " + id + " created")
+		s.broadcast(msg, room)
+	}
+}
+
+func (s *Server) broadcast(msg Message, room Room) {
+	for conn := range room.conns {
+		conn.WriteJSON(msg)
+	}
+}
+
+func (s *Server) roomMiddleWare() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		roomId := c.Param("roomId")
+		if roomId == "" {
+			roomId = ranhash.RanHash(8)
+		}
+
+		room := s.rooms.GetRoom(roomId)
+		c.Set("room", room)
 	}
 }
 
@@ -86,16 +154,24 @@ func (s *Server) handleChat(c *gin.Context) {
 		return
 	}
 
+	roomObj, exists := c.Get("room")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Authenticated Route"})
+		return
+	}
+
+	room := roomObj.(Room)
+
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	s.conns[ws] = session.(Session).User
+	room.conns[ws] = session.(Session).User
 
-	ws.WriteJSON(map[string]string{"msg": "Connected to the server!"})
+	ws.WriteJSON(map[string]string{"msg": "Connected to room: " + room.id})
 	go func(ws *websocket.Conn) {
-		s.clientLoop(ws)
+		s.clientLoop(room, ws)
 	}(ws)
 }
