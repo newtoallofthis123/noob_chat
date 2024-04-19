@@ -85,3 +85,15 @@ func (s *Server) handleAuthEcho(c *gin.Context) {
 
 	c.JSON(http.StatusOK, session)
 }
+
+func (s *Server) handleGetRoomChats(c *gin.Context) {
+	roomId := c.Param("roomId")
+
+	chats, err := s.db.GetChatsByRoom(roomId)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, chats)
+}

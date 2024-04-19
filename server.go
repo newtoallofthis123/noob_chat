@@ -80,6 +80,7 @@ func (s *Server) StartServer(addr string) {
 	auth := r.Group("/api")
 	auth.Use(s.authMiddleWare())
 	auth.GET("/echo", s.handleAuthEcho)
+	auth.GET("/rooms/:roomId", s.handleGetRoomChats)
 
 	room := auth.Group("/chat")
 	room.Use(s.roomMiddleWare())

@@ -208,3 +208,29 @@ func (pq *DbInstance) CreateChat(req CreateChatRequest) (string, error) {
 
 	return id, nil
 }
+
+func (pq *DbInstance) GetChatsByRoom(roomId string) ([]Chat, error) {
+	query := `
+	SELECT * from chats where room_id=$1;
+	`
+
+	rows, err := pq.db.Query(query, roomId)
+	if err != nil {
+		return nil, err
+	}
+
+	var chats []Chat
+
+	for rows.Next() {
+		var chat Chat
+
+		err := rows.Scan(&chat.Id, &chat.Content, &chat.UserId, &chat.RoomId, &chat.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		chats = append(chats, chat)
+	}
+
+	return chats, nil
+}
