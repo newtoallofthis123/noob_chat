@@ -54,6 +54,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+// NewServer create a server, writing to stderr
 func NewServer() *Server {
 	return &Server{
 		rooms:     NewRooms(),
@@ -62,6 +63,7 @@ func NewServer() *Server {
 	}
 }
 
+// NewServerWithLog, creates a server instance with a log file
 func NewServerWithLog(file *os.File) *Server {
 	return &Server{
 		rooms:     NewRooms(),
